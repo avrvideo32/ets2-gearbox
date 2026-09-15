@@ -23,19 +23,21 @@ jobs:
           $path = "src/shifter.cpp"
           $text = Get-Content -Raw -Path $path
 
-          $old = 'constexpr float DEFAULT_MAX_COAST_OVERREV_RPM = 2250.0f;'
-          $text = $text.Replace($old + "`r`n", "")
-          $text = $text.Replace($old + "`n", "")
+          $text = [regex]::Replace(
+            $text,
+            '(?m)^constexpr float DEFAULT_MAX_COAST_OVERREV_RPM = 2250\.0f;\r?\n',
+            '')
 
           $text = $text.Replace(
             'if ((is_coasting || manual_brake_active) &&',
             'if (manual_brake_active &&')
 
-          $text = $text.Replace(
-            'const bool can_downshift =\n        (g > 1 && can_downshift_timing) &&',
-            'const bool can_downshift =\n        (g > 1 && can_downshift_timing) &&\n        !is_coasting &&')
+          $text = [regex]::Replace(
+            $text,
+            'const bool can_downshift =\s*\(g > 1 && can_downshift_timing\) &&',
+            "const bool can_downshift =`r`n        (g > 1 && can_downshift_timing) &&`r`n        !is_coasting &&")
 
-          if ($text -notmatch '!is_coasting &&\s*\(coasting_downshift_eligible') {
+          if ($text -notmatch 'const bool can_downshift =\s*\(g > 1 && can_downshift_timing\) &&\s*!is_coasting &&') {
             throw "Expected coast-downshift guard was not applied."
           }
 
