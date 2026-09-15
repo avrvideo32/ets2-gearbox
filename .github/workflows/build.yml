@@ -22,3 +22,8 @@ jobs:
 
       - name: Build Release
         run: cmake --build build --config Release
+      - name: Upload Release DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: ets2-gearbox-release
+          path: build/Release/*.dll
