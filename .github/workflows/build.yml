@@ -58,15 +58,12 @@ jobs:
 
           $coastingPath = "src/coasting_controller.cpp"
           $coasting = Get-Content -Raw -Path $coastingPath
-          $coasting = $coasting.Replace(
-            'remembered_cruise_speed_ > 0.10f',
-            'remembered_cruise_speed_() > 0.10f')
-          $coasting = $coasting.Replace(
-            'abs_speed <= remembered_cruise_speed_ - 0.05f',
-            'abs_speed <= remembered_cruise_speed_() - 0.05f')
+          $coasting = $coasting.Replace('remembered_cruise_speed_()', 'remembered_cruise_speed()')
+          $coasting = $coasting.Replace('remembered_cruise_speed_ > 0.10f', 'remembered_cruise_speed() > 0.10f')
+          $coasting = $coasting.Replace('remembered_cruise_speed - 0.05f', 'remembered_cruise_speed() - 0.05f')
           Set-Content -Path $coastingPath -Value $coasting -NoNewline
 
-          if ($coasting -match 'remembered_cruise_speed_ > 0\.10f|abs_speed <= remembered_cruise_speed_ - 0\.05f') {
+          if ($coasting -match 'remembered_cruise_speed_\(\)|remembered_cruise_speed_ > 0\.10f|remembered_cruise_speed - 0\.05f') {
             throw "Coasting cruise accessor fix was not applied."
           }
 
@@ -78,7 +75,7 @@ jobs:
             Write-Host "No source changes needed."
             exit 0
           }
-          git commit -m "Fix coast downshift and cruise accessor [skip ci]"
+          git commit -m "Correct coast cruise accessor calls [skip ci]"
           git push
 
       - name: Configure CMake
