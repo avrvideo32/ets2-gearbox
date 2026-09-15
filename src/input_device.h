@@ -48,7 +48,6 @@ namespace ecodrive
         static constexpr unsigned INPUT_CRUISE_RESUME = 3;
         static constexpr unsigned INPUT_CLUTCH = 4;
         static constexpr unsigned INPUT_COUNT = 5;
-        static constexpr unsigned CRUISE_RESUME_HOLD_UPDATES = 6;
 
         scs_input_device_input_t inputs_[INPUT_COUNT]{};
         scs_input_device_t device_{};
@@ -71,8 +70,11 @@ namespace ecodrive
         bool release_pending_ = false;
         unsigned release_input_index_ = INPUT_GEAR_UP;
 
-        bool cruise_resume_hold_ = false;
-        unsigned cruise_resume_hold_updates_ = 0;
+        // Cruise resume must behave like the driver's button press: one
+        // callback with true followed by one callback with false. Holding the
+        // semantic input for multiple callbacks can fail to trigger ETS2's
+        // toggle-style cruise-resume action.
+        bool cruise_resume_pulse_pending_ = false;
 
         bool registered_ = false;
     };
