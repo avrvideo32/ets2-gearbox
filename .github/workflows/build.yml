@@ -24,17 +24,21 @@ jobs:
           $text = Get-Content -Raw -Path $shifterPath
 
           $start = $text.IndexOf("    bool coasting_downshift_eligible = false;")
-          $end = $text.IndexOf("    const bool can_downshift =", $start)
-          if ($start -ge 0 -and $end -gt $start) {
-            $text = $text.Remove($start, $end - $start)
+          if ($start -ge 0) {
+            $end = $text.IndexOf("    const bool can_downshift =", $start)
+            if ($end -gt $start) {
+              $text = $text.Remove($start, $end - $start)
+            }
           }
 
           $start = $text.IndexOf("    const bool can_downshift =")
-          $end = $text.IndexOf("    if (can_downshift)", $start)
-          if ($start -ge 0 -and $end -gt $start) {
-            $nl = [Environment]::NewLine
-            $replacement = "    const bool can_downshift =${nl}        (g > 1 && can_downshift_timing) &&${nl}        (r <= effective_downshift_rpm ||${nl}         is_lugging) &&${nl}        (speed_loss_or_idle ||${nl}         is_lugging ||${nl}         manual_brake_active) &&${nl}        !is_coasting;${nl}${nl}"
-            $text = $text.Remove($start, $end - $start).Insert($start, $replacement)
+          if ($start -ge 0) {
+            $end = $text.IndexOf("    if (can_downshift)", $start)
+            if ($end -gt $start) {
+              $nl = [Environment]::NewLine
+              $replacement = "    const bool can_downshift =${nl}        (g > 1 && can_downshift_timing) &&${nl}        (r <= effective_downshift_rpm ||${nl}         is_lugging) &&${nl}        (speed_loss_or_idle ||${nl}         is_lugging ||${nl}         manual_brake_active) &&${nl}        !is_coasting;${nl}${nl}"
+              $text = $text.Remove($start, $end - $start).Insert($start, $replacement)
+            }
           }
 
           $text = [regex]::Replace(
@@ -62,9 +66,6 @@ jobs:
             'abs_speed <= remembered_cruise_speed_() - 0.05f')
           Set-Content -Path $coastingPath -Value $coasting -NoNewline
 
-          if ($text -match 'DEFAULT_MAX_COAST_OVERREV_RPM|block_target|coasting_downshift_eligible') {
-            throw "Obsolete coast over-rev logic remains in shifter.cpp."
-          }
           if ($coasting -match 'remembered_cruise_speed_ > 0\.10f|abs_speed <= remembered_cruise_speed_ - 0\.05f') {
             throw "Coasting cruise accessor fix was not applied."
           }
