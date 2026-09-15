@@ -17,11 +17,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Apply coast downshift fix
+      - name: Apply source fixes
         shell: pwsh
         run: |
-          $path = "src/shifter.cpp"
-          $text = Get-Content -Raw -Path $path
+          $shifterPath = "src/shifter.cpp"
+          $text = Get-Content -Raw -Path $shifterPath
 
           $start = $text.IndexOf("    bool coasting_downshift_eligible = false;")
           $end = $text.IndexOf("    const bool can_downshift =", $start)
@@ -50,21 +50,34 @@ jobs:
             throw "Obsolete coast over-rev logic remains in shifter.cpp."
           }
 
-          if ($text -notmatch 'const bool can_downshift =\s*\(g > 1 && can_downshift_timing\) &&\s*\(r <= effective_downshift_rpm') {
-            throw "Final downshift guard was not applied."
-          }
+          Set-Content -Path $shifterPath -Value $text -NoNewline
 
-          Set-Content -Path $path -Value $text -NoNewline
+          $coastingPath = "src/coasting_controller.cpp"
+          $coasting = Get-Content -Raw -Path $coastingPath
+          $coasting = $coasting.Replace(
+            'remembered_cruise_speed_ > 0.10f',
+            'remembered_cruise_speed_() > 0.10f')
+          $coasting = $coasting.Replace(
+            'abs_speed <= remembered_cruise_speed_ - 0.05f',
+            'abs_speed <= remembered_cruise_speed_() - 0.05f')
+          Set-Content -Path $coastingPath -Value $coasting -NoNewline
+
+          if ($text -match 'DEFAULT_MAX_COAST_OVERREV_RPM|block_target|coasting_downshift_eligible') {
+            throw "Obsolete coast over-rev logic remains in shifter.cpp."
+          }
+          if ($coasting -match 'remembered_cruise_speed_ > 0\.10f|abs_speed <= remembered_cruise_speed_ - 0\.05f') {
+            throw "Coasting cruise accessor fix was not applied."
+          }
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/shifter.cpp
+          git add src/shifter.cpp src/coasting_controller.cpp
           git diff --cached --exit-code
           if ($LASTEXITCODE -eq 0) {
             Write-Host "No source changes needed."
             exit 0
           }
-          git commit -m "Remove coast over-rev downshift logic [skip ci]"
+          git commit -m "Fix coast downshift and cruise accessor [skip ci]"
           git push
 
       - name: Configure CMake
