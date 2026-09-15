@@ -6,9 +6,6 @@ on:
       - main
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: windows-latest
@@ -16,67 +13,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Apply source fixes
-        shell: pwsh
-        run: |
-          $shifterPath = "src/shifter.cpp"
-          $text = Get-Content -Raw -Path $shifterPath
-
-          $start = $text.IndexOf("    bool coasting_downshift_eligible = false;")
-          if ($start -ge 0) {
-            $end = $text.IndexOf("    const bool can_downshift =", $start)
-            if ($end -gt $start) {
-              $text = $text.Remove($start, $end - $start)
-            }
-          }
-
-          $start = $text.IndexOf("    const bool can_downshift =")
-          if ($start -ge 0) {
-            $end = $text.IndexOf("    if (can_downshift)", $start)
-            if ($end -gt $start) {
-              $nl = [Environment]::NewLine
-              $replacement = "    const bool can_downshift =${nl}        (g > 1 && can_downshift_timing) &&${nl}        (r <= effective_downshift_rpm ||${nl}         is_lugging) &&${nl}        (speed_loss_or_idle ||${nl}         is_lugging ||${nl}         manual_brake_active) &&${nl}        !is_coasting;${nl}${nl}"
-              $text = $text.Remove($start, $end - $start).Insert($start, $replacement)
-            }
-          }
-
-          $text = [regex]::Replace(
-            $text,
-            'multi_downshift_target_gear_\s*=\s*\(block_target < g - 1\) \? block_target : 0;',
-            'multi_downshift_target_gear_ = 0;')
-
-          $text = $text.Replace(
-            'const unsigned required_stable = is_coasting ? 2 : 4;',
-            'const unsigned required_stable = 4;')
-
-          if ($text -match 'DEFAULT_MAX_COAST_OVERREV_RPM|block_target|coasting_downshift_eligible') {
-            throw "Obsolete coast over-rev logic remains in shifter.cpp."
-          }
-
-          Set-Content -Path $shifterPath -Value $text -NoNewline
-
-          $coastingPath = "src/coasting_controller.cpp"
-          $coasting = Get-Content -Raw -Path $coastingPath
-          $coasting = $coasting.Replace('remembered_cruise_speed_()', 'remembered_cruise_speed()')
-          $coasting = $coasting.Replace('remembered_cruise_speed_ > 0.10f', 'remembered_cruise_speed() > 0.10f')
-          $coasting = $coasting.Replace('remembered_cruise_speed - 0.05f', 'remembered_cruise_speed() - 0.05f')
-          Set-Content -Path $coastingPath -Value $coasting -NoNewline
-
-          if ($coasting -match 'remembered_cruise_speed_\(\)|remembered_cruise_speed_ > 0\.10f|remembered_cruise_speed - 0\.05f') {
-            throw "Coasting cruise accessor fix was not applied."
-          }
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/shifter.cpp src/coasting_controller.cpp
-          git diff --cached --exit-code
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "No source changes needed."
-            exit 0
-          }
-          git commit -m "Correct coast cruise accessor calls [skip ci]"
-          git push
 
       - name: Configure CMake
         run: cmake -S . -B build -A x64
