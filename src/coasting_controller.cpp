@@ -209,11 +209,11 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
     if (shift_in_progress)
         return;
 
-    // Cruise being enabled is not itself a drive request. When the truck is
-    // already at/above the remembered cruise target and both throttles are
-    // released, allow neutral coasting. Cruise recovery is handled above when
-    // speed subsequently falls below the remembered target.
-    if (driver_wants_drive)
+    // Cruise being enabled is not itself a drive request. driver_wants_drive()
+    // currently also includes cruise state, so only reject coasting here when
+    // there is an actual driver throttle demand. Cruise recovery is handled
+    // when speed falls below the remembered target.
+    if (driver_wants_drive && !cruise_active)
         return;
 
     if (input.request_command(InputDevice::Command::neutral))
@@ -262,8 +262,6 @@ void CoastingController::update_restore_logic(InputDevice& input, int current_ge
         }
     }
 
-    // Restoration is a committed action once started. Do not cancel it just
-    // because throttle demand disappears on the next telemetry update.
     (void)driver_wants_drive;
 
     if (restore_target_gear_ < 1 || restore_target_gear_ > effective_max_gear)
