@@ -64,6 +64,13 @@ namespace ecodrive
         std::atomic<bool> clutch_hold_{false};
         bool clutch_applied_ = false;
 
+        // Cruise resume is intentionally delayed until the callback after the
+        // gear-1 restoration pulse. This prevents the resume action from
+        // colliding with the final gear pulse/release seen by ETS2.
+        unsigned cruise_resume_delay_updates_ = 0;
+        unsigned cruise_resume_attempts_left_ = 0;
+        unsigned cruise_resume_cooldown_updates_ = 0;
+
         bool release_pending_ = false;
         unsigned release_input_index_ = INPUT_GEAR_UP;
 
