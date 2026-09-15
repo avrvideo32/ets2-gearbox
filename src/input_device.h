@@ -15,7 +15,13 @@ namespace ecodrive
             gear_up,
             gear_down,
             neutral,
-            cruise_resume
+            cruise_resume,
+            direct_gear_2,
+            direct_gear_4,
+            direct_gear_6,
+            direct_gear_8,
+            direct_gear_10,
+            direct_gear_12
         };
 
         InputDevice();
@@ -28,6 +34,9 @@ namespace ecodrive
         void request_gear_down_burst(unsigned count);
         void cancel_burst();
         unsigned pending_gear_up_burst() const;
+
+        void set_current_gear(int gear);
+        void set_max_forward_gear(int gear);
 
         void set_clutch_hold(bool hold);
         bool is_clutch_held() const;
@@ -47,7 +56,13 @@ namespace ecodrive
         static constexpr unsigned INPUT_NEUTRAL = 2;
         static constexpr unsigned INPUT_CRUISE_RESUME = 3;
         static constexpr unsigned INPUT_CLUTCH = 4;
-        static constexpr unsigned INPUT_COUNT = 5;
+        static constexpr unsigned INPUT_GEAR_2 = 5;
+        static constexpr unsigned INPUT_GEAR_4 = 6;
+        static constexpr unsigned INPUT_GEAR_6 = 7;
+        static constexpr unsigned INPUT_GEAR_8 = 8;
+        static constexpr unsigned INPUT_GEAR_10 = 9;
+        static constexpr unsigned INPUT_GEAR_12 = 10;
+        static constexpr unsigned INPUT_COUNT = 11;
 
         scs_input_device_input_t inputs_[INPUT_COUNT]{};
         scs_input_device_t device_{};
@@ -58,6 +73,9 @@ namespace ecodrive
 
         std::atomic<unsigned> gear_up_burst_count_{0};
         std::atomic<unsigned> gear_down_burst_count_{0};
+
+        std::atomic<int> current_gear_{0};
+        std::atomic<int> max_forward_gear_{0};
 
         std::atomic<bool> clutch_hold_{false};
         bool clutch_applied_ = false;
