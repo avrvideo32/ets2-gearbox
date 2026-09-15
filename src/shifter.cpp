@@ -1026,61 +1026,20 @@ void Shifter::update_automatic_shifter(
     const bool speed_loss_or_idle =
         (speed_delta < 0.001f || t < config.min_upshift_throttle);
 
-    bool coasting_downshift_eligible = false;
-    int block_target = g - 1;
-
-    const int takeoff =
-        std::clamp(config.takeoff_gear, 1, effective_max_gear);
-
-    const float max_overrev_rpm =
-        (context.rpm_limit > 1500.0f)
-            ? (context.rpm_limit - 100.0f)
-            : DEFAULT_MAX_COAST_OVERREV_RPM;
-
-    if (manual_brake_active &&
-        g > takeoff &&
-        can_downshift_timing)
-    {
-        const int max_drop = std::min(3, g - takeoff);
-
-        for (int d = max_drop; d >= 1; --d)
-        {
-            const int test_gear = g - d;
-
-            const float landing_rpm =
-                context.has_exact_ratios()
-                    ? context.calculate_engine_rpm(test_gear, s)
-                    : (r * (d == 3 ? 2.05f : (d == 2 ? 1.60f : 1.28f)));
-
-            if (landing_rpm <= max_overrev_rpm &&
-                (landing_rpm >= 1100.0f || s <= 5.0f))
-            {
-                block_target = test_gear;
-
-                coasting_downshift_eligible =
-                    (d >= 2) || (r <= effective_downshift_rpm);
-
-                break;
-            }
-        }
-    }
-
     const bool can_downshift =
         (g > 1 && can_downshift_timing) &&
-        !is_coasting &&
-        (coasting_downshift_eligible ||
-         r <= effective_downshift_rpm ||
+        (r <= effective_downshift_rpm ||
          is_lugging) &&
         (speed_loss_or_idle ||
          is_lugging ||
-         is_coasting ||
-         manual_brake_active);
+         manual_brake_active) &&
+        !is_coasting;
 
     if (can_downshift)
     {
         ++normal_downshift_stable_updates_;
 
-        const unsigned required_stable = is_coasting ? 2 : 4;
+        const unsigned required_stable = 4;
 
         if (normal_downshift_stable_updates_ >= required_stable)
         {
@@ -1096,8 +1055,7 @@ void Shifter::update_automatic_shifter(
                 multi_upshift_target_gear_ = 0;
                 multi_upshift_wait_updates_ = 0;
 
-                multi_downshift_target_gear_ =
-                    (block_target < g - 1) ? block_target : 0;
+                multi_downshift_target_gear_ = 0;
 
                 multi_downshift_wait_updates_ = 0;
 
