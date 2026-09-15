@@ -56,9 +56,6 @@ namespace ecodrive
             static_cast<int>(Command::none)
         };
 
-        // Cruise resume is intentionally independent from the single normal
-        // command slot. A resume request must survive a busy gear command or
-        // a recovery burst instead of being silently discarded.
         std::atomic<bool> cruise_resume_pending_{false};
 
         std::atomic<unsigned> gear_up_burst_count_{0};
@@ -69,12 +66,6 @@ namespace ecodrive
 
         bool release_pending_ = false;
         unsigned release_input_index_ = INPUT_GEAR_UP;
-
-        // Cruise resume must behave like the driver's button press: one
-        // callback with true followed by one callback with false. Holding the
-        // semantic input for multiple callbacks can fail to trigger ETS2's
-        // toggle-style cruise-resume action.
-        bool cruise_resume_pulse_pending_ = false;
 
         bool registered_ = false;
     };
