@@ -1,0 +1,7 @@
+LIBRARY ecodrive
+
+EXPORTS
+    scs_input_init
+    scs_input_shutdown
+    scs_telemetry_init
+    scs_telemetry_shutdown
