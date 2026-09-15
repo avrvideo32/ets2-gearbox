@@ -1,5 +1,7 @@
 #include "input_device.h"
 
+#include <algorithm>
+
 namespace ecodrive
 {
     namespace
@@ -30,8 +32,6 @@ namespace ecodrive
         inputs_[INPUT_NEUTRAL].value_type = SCS_VALUE_TYPE_bool;
 
         // ETS2 uses this exact semantic command name for cruise resume.
-        // The previous "cruiseresume" name did not match the user's
-        // semantical.cruiectrlres binding, so the resume pulse was ignored.
         inputs_[INPUT_CRUISE_RESUME].name = "cruiectrlres";
         inputs_[INPUT_CRUISE_RESUME].display_name = "EcoDrive Cruise Resume";
         inputs_[INPUT_CRUISE_RESUME].value_type = SCS_VALUE_TYPE_bool;
@@ -39,6 +39,30 @@ namespace ecodrive
         inputs_[INPUT_CLUTCH].name = "dclutch";
         inputs_[INPUT_CLUTCH].display_name = "EcoDrive Clutch";
         inputs_[INPUT_CLUTCH].value_type = SCS_VALUE_TYPE_bool;
+
+        inputs_[INPUT_GEAR_2].name = "gear2";
+        inputs_[INPUT_GEAR_2].display_name = "EcoDrive Direct Gear 2";
+        inputs_[INPUT_GEAR_2].value_type = SCS_VALUE_TYPE_bool;
+
+        inputs_[INPUT_GEAR_4].name = "gear4";
+        inputs_[INPUT_GEAR_4].display_name = "EcoDrive Direct Gear 4";
+        inputs_[INPUT_GEAR_4].value_type = SCS_VALUE_TYPE_bool;
+
+        inputs_[INPUT_GEAR_6].name = "gear6";
+        inputs_[INPUT_GEAR_6].display_name = "EcoDrive Direct Gear 6";
+        inputs_[INPUT_GEAR_6].value_type = SCS_VALUE_TYPE_bool;
+
+        inputs_[INPUT_GEAR_8].name = "gear8";
+        inputs_[INPUT_GEAR_8].display_name = "EcoDrive Direct Gear 8";
+        inputs_[INPUT_GEAR_8].value_type = SCS_VALUE_TYPE_bool;
+
+        inputs_[INPUT_GEAR_10].name = "gear10";
+        inputs_[INPUT_GEAR_10].display_name = "EcoDrive Direct Gear 10";
+        inputs_[INPUT_GEAR_10].value_type = SCS_VALUE_TYPE_bool;
+
+        inputs_[INPUT_GEAR_12].name = "gear12";
+        inputs_[INPUT_GEAR_12].display_name = "EcoDrive Direct Gear 12";
+        inputs_[INPUT_GEAR_12].value_type = SCS_VALUE_TYPE_bool;
 
         device_.name = "ecodrive";
         device_.display_name = "EcoDrive";
@@ -110,6 +134,16 @@ namespace ecodrive
     unsigned InputDevice::pending_gear_up_burst() const
     {
         return gear_up_burst_count_.load(std::memory_order_acquire);
+    }
+
+    void InputDevice::set_current_gear(int gear)
+    {
+        current_gear_.store(gear, std::memory_order_relaxed);
+    }
+
+    void InputDevice::set_max_forward_gear(int gear)
+    {
+        max_forward_gear_.store(std::max(0, gear), std::memory_order_relaxed);
     }
 
     void InputDevice::set_clutch_hold(bool hold)
@@ -216,6 +250,48 @@ namespace ecodrive
         case Command::cruise_resume:
             input_index = INPUT_CRUISE_RESUME;
             break;
+
+        case Command::direct_gear_2:
+        case Command::direct_gear_4:
+        case Command::direct_gear_6:
+        case Command::direct_gear_8:
+        case Command::direct_gear_10:
+        case Command::direct_gear_12:
+        {
+            int target_gear = 2;
+            switch (command)
+            {
+            case Command::direct_gear_2:  target_gear = 2;  break;
+            case Command::direct_gear_4:  target_gear = 4;  break;
+            case Command::direct_gear_6:  target_gear = 6;  break;
+            case Command::direct_gear_8:  target_gear = 8;  break;
+            case Command::direct_gear_10: target_gear = 10; break;
+            case Command::direct_gear_12: target_gear = 12; break;
+            default: break;
+            }
+
+            const int max_gear = max_forward_gear_.load(std::memory_order_relaxed);
+            if (max_gear > 0)
+                target_gear = std::min(target_gear, max_gear);
+
+            const int current_gear = current_gear_.load(std::memory_order_relaxed);
+            const int delta = target_gear - current_gear;
+
+            if (delta > 0)
+            {
+                gear_up_burst_count_.store(
+                    static_cast<unsigned>(delta),
+                    std::memory_order_release);
+            }
+            else if (delta < 0)
+            {
+                gear_down_burst_count_.store(
+                    static_cast<unsigned>(-delta),
+                    std::memory_order_release);
+            }
+
+            return SCS_RESULT_ok;
+        }
 
         case Command::none:
         default:
