@@ -32,22 +32,14 @@ jobs:
           $start = $text.IndexOf("    const bool can_downshift =")
           $end = $text.IndexOf("    if (can_downshift)", $start)
           if ($start -ge 0 -and $end -gt $start) {
-            $replacement = @"
-    const bool can_downshift =
-        (g > 1 && can_downshift_timing) &&
-        (r <= effective_downshift_rpm ||
-         is_lugging) &&
-        (speed_loss_or_idle ||
-         is_lugging ||
-         manual_brake_active) &&
-        !is_coasting;
-
-"@
+            $nl = [Environment]::NewLine
+            $replacement = "    const bool can_downshift =${nl}        (g > 1 && can_downshift_timing) &&${nl}        (r <= effective_downshift_rpm ||${nl}         is_lugging) &&${nl}        (speed_loss_or_idle ||${nl}         is_lugging ||${nl}         manual_brake_active) &&${nl}        !is_coasting;${nl}${nl}"
             $text = $text.Remove($start, $end - $start).Insert($start, $replacement)
           }
 
-          $text = $text.Replace(
-            'multi_downshift_target_gear_ =\n                    (block_target < g - 1) ? block_target : 0;',
+          $text = [regex]::Replace(
+            $text,
+            'multi_downshift_target_gear_\s*=\s*\(block_target < g - 1\) \? block_target : 0;',
             'multi_downshift_target_gear_ = 0;')
 
           $text = $text.Replace(
@@ -72,7 +64,7 @@ jobs:
             Write-Host "No source changes needed."
             exit 0
           }
-          git commit -m "Fix coast downshift behavior [skip ci]"
+          git commit -m "Remove coast over-rev downshift logic [skip ci]"
           git push
 
       - name: Configure CMake
