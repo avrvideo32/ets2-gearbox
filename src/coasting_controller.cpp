@@ -163,9 +163,19 @@ void CoastingController::start_restore_if_needed(InputDevice& input, int current
     const int safe_minimum = (minimum_gear >= 1 && minimum_gear <= safe_max) ? minimum_gear : 1;
     const int remembered = (remembered_gear_ >= 1 && remembered_gear_ <= safe_max) ? remembered_gear_ : takeoff;
 
-    restore_target_gear_ = (abs_speed <= STANDSTILL_SPEED_THRESHOLD)
-        ? takeoff
-        : calculate_speed_matched_gear(speed, takeoff, remembered, safe_max, context);
+    // Cruise recovery deliberately starts from first gear. Do not replay the
+    // remembered gear: the cruise controller must be re-engaged first, then
+    // normal EcoDrive shifting can climb through the gears as required.
+    if (has_cruise_memory)
+    {
+        restore_target_gear_ = takeoff;
+    }
+    else
+    {
+        restore_target_gear_ = (abs_speed <= STANDSTILL_SPEED_THRESHOLD)
+            ? takeoff
+            : calculate_speed_matched_gear(speed, takeoff, remembered, safe_max, context);
+    }
 
     restore_target_gear_ = std::clamp(std::max(safe_minimum, restore_target_gear_), takeoff, safe_max);
     post_neutral_recovery_ = false;
@@ -240,10 +250,13 @@ void CoastingController::update_restore_logic(InputDevice& input, int current_ge
         remembered_gear_ = current_gear;
         post_neutral_recovery_ = true;
 
+        // For cruise recovery the target is deliberately gear 1. The cruise
+        // resume command is queued as soon as gear 1 is confirmed; subsequent
+        // upshifts are handled by normal EcoDrive logic.
         if (remembered_cruise_speed() > 0.10f)
         {
             input.request_command(InputDevice::Command::cruise_resume);
-            if (config.shift_logging && logger) logger("EcoDrive: gear restoration complete -> queued cruise resume.");
+            if (config.shift_logging && logger) logger("EcoDrive: gear 1 restoration complete -> queued cruise resume.");
         }
         else if (config.shift_logging && logger)
         {
@@ -323,7 +336,7 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
             if (remembered_cruise_speed() > 0.10f)
             {
                 input.request_command(InputDevice::Command::cruise_resume);
-                if (config.shift_logging && logger) logger("EcoDrive: gear restoration complete -> queued cruise resume.");
+                if (config.shift_logging && logger) logger("EcoDrive: gear 1 restoration complete -> queued cruise resume.");
             }
             else if (config.shift_logging && logger)
             {
@@ -358,16 +371,15 @@ void CoastingController::on_manual_override(InputDevice& input, int confirmed_ge
 
 void CoastingController::reset()
 {
+    remembered_gear_ = 0;
+    coasting_start_speed_ = 0.0f;
+    remembered_cruise_speed_ = 0.0f;
     neutral_in_progress_ = false;
     restore_in_progress_ = false;
-    post_neutral_recovery_ = false;
-    remembered_gear_ = 0;
     restore_target_gear_ = 0;
-    remembered_cruise_speed_ = 0.0f;
-    coasting_start_speed_ = 0.0f;
     restore_wait_updates_ = 0;
     restore_throttle_updates_ = 0;
     effective_throttle_zero_updates_ = 0;
-    low_speed_updates_ = 0;
+    post_neutral_recovery_ = false;
 }
 }
