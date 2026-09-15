@@ -23,22 +23,43 @@ jobs:
           $path = "src/shifter.cpp"
           $text = Get-Content -Raw -Path $path
 
-          $text = [regex]::Replace(
-            $text,
-            '(?m)^constexpr float DEFAULT_MAX_COAST_OVERREV_RPM = 2250\.0f;\r?\n',
-            '')
+          $start = $text.IndexOf("    bool coasting_downshift_eligible = false;")
+          $end = $text.IndexOf("    const bool can_downshift =", $start)
+          if ($start -ge 0 -and $end -gt $start) {
+            $text = $text.Remove($start, $end - $start)
+          }
+
+          $start = $text.IndexOf("    const bool can_downshift =")
+          $end = $text.IndexOf("    if (can_downshift)", $start)
+          if ($start -ge 0 -and $end -gt $start) {
+            $replacement = @"
+    const bool can_downshift =
+        (g > 1 && can_downshift_timing) &&
+        (r <= effective_downshift_rpm ||
+         is_lugging) &&
+        (speed_loss_or_idle ||
+         is_lugging ||
+         manual_brake_active) &&
+        !is_coasting;
+
+"@
+            $text = $text.Remove($start, $end - $start).Insert($start, $replacement)
+          }
 
           $text = $text.Replace(
-            'if ((is_coasting || manual_brake_active) &&',
-            'if (manual_brake_active &&')
+            'multi_downshift_target_gear_ =\n                    (block_target < g - 1) ? block_target : 0;',
+            'multi_downshift_target_gear_ = 0;')
 
-          $text = [regex]::Replace(
-            $text,
-            'const bool can_downshift =\s*\(g > 1 && can_downshift_timing\) &&',
-            "const bool can_downshift =`r`n        (g > 1 && can_downshift_timing) &&`r`n        !is_coasting &&")
+          $text = $text.Replace(
+            'const unsigned required_stable = is_coasting ? 2 : 4;',
+            'const unsigned required_stable = 4;')
 
-          if ($text -notmatch 'const bool can_downshift =\s*\(g > 1 && can_downshift_timing\) &&\s*!is_coasting &&') {
-            throw "Expected coast-downshift guard was not applied."
+          if ($text -match 'DEFAULT_MAX_COAST_OVERREV_RPM|block_target|coasting_downshift_eligible') {
+            throw "Obsolete coast over-rev logic remains in shifter.cpp."
+          }
+
+          if ($text -notmatch 'const bool can_downshift =\s*\(g > 1 && can_downshift_timing\) &&\s*\(r <= effective_downshift_rpm') {
+            throw "Final downshift guard was not applied."
           }
 
           Set-Content -Path $path -Value $text -NoNewline
