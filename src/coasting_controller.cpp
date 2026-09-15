@@ -9,8 +9,8 @@ namespace
 {
 constexpr float THROTTLE_RELEASE_THRESHOLD = 0.02f;
 constexpr float STANDSTILL_SPEED_THRESHOLD = 0.50f;
-constexpr float NEUTRAL_COASTING_MIN_SPEED = 2.5f;
-constexpr float NEUTRAL_COASTING_DISENGAGE_SPEED = 4.5f;
+constexpr float NEUTRAL_COASTING_MIN_SPEED = 4.5f;
+constexpr float NEUTRAL_COASTING_RESTORE_SPEED = 2.5f;
 constexpr unsigned RESTORE_THROTTLE_DEBOUNCE_UPDATES = 4;
 }
 
@@ -144,6 +144,8 @@ void CoastingController::start_restore_if_needed(InputDevice& input, int current
         abs_speed <= STANDSTILL_SPEED_THRESHOLD &&
         (driver_throttle > THROTTLE_RELEASE_THRESHOLD || cruise_active);
 
+    const bool low_speed_safety_restore = abs_speed <= NEUTRAL_COASTING_RESTORE_SPEED;
+
     const bool driver_restore_needed =
         driver_wants_drive &&
         (driver_throttle >= config.restore_throttle ||
@@ -152,7 +154,8 @@ void CoastingController::start_restore_if_needed(InputDevice& input, int current
     if (!force_restore &&
         !cruise_restore_needed &&
         !driver_restore_needed &&
-        !standstill_takeoff_request)
+        !standstill_takeoff_request &&
+        !low_speed_safety_restore)
     {
         return;
     }
@@ -186,13 +189,16 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
     (void)speed_delta;
     const float abs_speed = std::fabs(speed);
     const bool has_cruise_memory = remembered_cruise_speed_ > 0.10f;
-    const bool speed_below_cruise = has_cruise_memory && abs_speed <= remembered_cruise_speed_ - 0.05f;
+    const bool speed_below_cruise = has_cruise_memory && abs_speed <= remembered_cruise_speed - 0.05f;
     const bool driver_throttle_request = driver_throttle >= config.restore_throttle || restore_throttle_updates_ >= RESTORE_THROTTLE_DEBOUNCE_UPDATES;
 
+    // High speed is normal during neutral coasting and must never by itself
+    // force a re-engagement. Restore only for an actual demand, falling below
+    // the remembered cruise target, or genuinely low speed.
     if (current_gear == 0 && neutral_in_progress_ &&
-        (abs_speed > NEUTRAL_COASTING_DISENGAGE_SPEED || driver_throttle_request || speed_below_cruise))
+        (driver_throttle_request || speed_below_cruise || abs_speed <= NEUTRAL_COASTING_RESTORE_SPEED))
     {
-        start_restore_if_needed(input, current_gear, speed, driver_throttle, cruise_active, driver_throttle_request || speed_below_cruise, shift_in_progress, minimum_gear, effective_max_gear, config, logger, context, abs_speed > NEUTRAL_COASTING_DISENGAGE_SPEED);
+        start_restore_if_needed(input, current_gear, speed, driver_throttle, cruise_active, driver_throttle_request || speed_below_cruise, shift_in_progress, minimum_gear, effective_max_gear, config, logger, context, false);
         return;
     }
 
@@ -209,10 +215,6 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
     if (shift_in_progress)
         return;
 
-    // Cruise being enabled is not itself a drive request. driver_wants_drive()
-    // currently also includes cruise state, so only reject coasting here when
-    // there is an actual driver throttle demand. Cruise recovery is handled
-    // when speed falls below the remembered target.
     if (driver_wants_drive && !cruise_active)
         return;
 
