@@ -138,7 +138,7 @@ void CoastingController::start_restore_if_needed(InputDevice& input, int current
 
     const float abs_speed = std::fabs(speed);
     const bool has_cruise_memory = remembered_cruise_speed_ > 0.10f;
-    const bool cruise_restore_needed = has_cruise_memory && abs_speed <= remembered_cruise_speed_ - 0.05f;
+    const bool cruise_restore_needed = has_cruise_memory && abs_speed <= remembered_cruise_speed - 0.05f;
 
     const bool standstill_takeoff_request =
         abs_speed <= STANDSTILL_SPEED_THRESHOLD &&
@@ -209,7 +209,11 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
     if (shift_in_progress)
         return;
 
-    if (driver_wants_drive || cruise_active)
+    // Cruise being enabled is not itself a drive request. When the truck is
+    // already at/above the remembered cruise target and both throttles are
+    // released, allow neutral coasting. Cruise recovery is handled above when
+    // speed subsequently falls below the remembered target.
+    if (driver_wants_drive)
         return;
 
     if (input.request_command(InputDevice::Command::neutral))
@@ -258,10 +262,8 @@ void CoastingController::update_restore_logic(InputDevice& input, int current_ge
         }
     }
 
-    // IMPORTANT: restoration is a committed action once started. Do not cancel
-    // it just because throttle demand disappears on the next telemetry update.
-    // Previously this made forced safety restoration log its target but then
-    // silently abandon the first RESTORE request.
+    // Restoration is a committed action once started. Do not cancel it just
+    // because throttle demand disappears on the next telemetry update.
     (void)driver_wants_drive;
 
     if (restore_target_gear_ < 1 || restore_target_gear_ > effective_max_gear)
