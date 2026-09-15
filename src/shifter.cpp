@@ -20,7 +20,6 @@ constexpr unsigned POST_SHIFT_DRIVE_GRACE_UPDATES = 25;
 constexpr unsigned MULTI_UPSHIFT_WAIT_UPDATES = 6;
 constexpr unsigned MULTI_DOWNSHIFT_WAIT_UPDATES = 6;
 
-constexpr float DEFAULT_MAX_COAST_OVERREV_RPM = 2250.0f;
 
 constexpr float MULTI_UPSHIFT_MIN_THROTTLE = 0.35f;
 constexpr float MULTI_UPSHIFT_STRONG_THROTTLE = 0.75f;
@@ -1038,7 +1037,7 @@ void Shifter::update_automatic_shifter(
             ? (context.rpm_limit - 100.0f)
             : DEFAULT_MAX_COAST_OVERREV_RPM;
 
-    if ((is_coasting || manual_brake_active) &&
+    if (manual_brake_active &&
         g > takeoff &&
         can_downshift_timing)
     {
@@ -1068,6 +1067,7 @@ void Shifter::update_automatic_shifter(
 
     const bool can_downshift =
         (g > 1 && can_downshift_timing) &&
+        !is_coasting &&
         (coasting_downshift_eligible ||
          r <= effective_downshift_rpm ||
          is_lugging) &&
