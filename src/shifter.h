@@ -56,6 +56,7 @@ public:
         const Config& config,
         CoastingController& coasting,
         AdaptiveLearner& learner,
+        TripTracker& tracker,
         const std::function<void(const char*)>& logger,
         const PowertrainContext& context = {});
 
