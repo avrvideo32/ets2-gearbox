@@ -129,10 +129,6 @@ namespace ecodrive
         if (!event_info)
             return SCS_RESULT_invalid_parameter;
 
-        /*
-         * If the previous callback generated the button press,
-         * generate the matching release now.
-         */
         if (release_pending_)
         {
             event_info->input_index =
@@ -145,11 +141,23 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        /*
-         * Handle digital clutch hold transitions.
-         * When clutch_hold is active, the clutch is kept disengaged during
-         * rapid sequential gear shifts so the engine does not over-rev.
-         */
+        if (cruise_resume_hold_)
+        {
+            if (cruise_resume_hold_updates_ < CRUISE_RESUME_HOLD_UPDATES)
+            {
+                event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
+                event_info->value_bool.value = 1;
+                ++cruise_resume_hold_updates_;
+                return SCS_RESULT_ok;
+            }
+
+            event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
+            event_info->value_bool.value = 0;
+            cruise_resume_hold_ = false;
+            cruise_resume_hold_updates_ = 0;
+            return SCS_RESULT_ok;
+        }
+
         const bool desired_clutch = clutch_hold_.load(std::memory_order_relaxed);
         if (desired_clutch != clutch_applied_)
         {
@@ -159,11 +167,6 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        /*
-         * Check for rapid burst pulses (e.g. rapid restoration from neutral).
-         * Fires successive press/release pairs on each input frame without waiting
-         * for full transmission round-trip animations.
-         */
         unsigned burst_up = gear_up_burst_count_.load(std::memory_order_relaxed);
         if (burst_up > 0)
         {
@@ -186,9 +189,6 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        /*
-         * Take exactly one pending command.
-         */
         const int command_value =
             pending_command_.exchange(
                 static_cast<int>(Command::none),
@@ -214,19 +214,18 @@ namespace ecodrive
             break;
 
         case Command::cruise_resume:
-            input_index = INPUT_CRUISE_RESUME;
-            break;
+            cruise_resume_hold_ = true;
+            cruise_resume_hold_updates_ = 0;
+            event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
+            event_info->value_bool.value = 1;
+            ++cruise_resume_hold_updates_;
+            return SCS_RESULT_ok;
 
         case Command::none:
         default:
             return SCS_RESULT_not_found;
         }
 
-        /*
-         * Generate the PRESS.
-         *
-         * The next callback will generate the RELEASE.
-         */
         event_info->input_index =
             static_cast<scs_u32_t>(input_index);
 
