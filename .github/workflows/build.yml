@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -13,6 +16,41 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Apply coast downshift fix
+        shell: pwsh
+        run: |
+          $path = "src/shifter.cpp"
+          $text = Get-Content -Raw -Path $path
+
+          $old = 'constexpr float DEFAULT_MAX_COAST_OVERREV_RPM = 2250.0f;'
+          $text = $text.Replace($old + "`r`n", "")
+          $text = $text.Replace($old + "`n", "")
+
+          $text = $text.Replace(
+            'if ((is_coasting || manual_brake_active) &&',
+            'if (manual_brake_active &&')
+
+          $text = $text.Replace(
+            'const bool can_downshift =\n        (g > 1 && can_downshift_timing) &&',
+            'const bool can_downshift =\n        (g > 1 && can_downshift_timing) &&\n        !is_coasting &&')
+
+          if ($text -notmatch '!is_coasting &&\s*\(coasting_downshift_eligible') {
+            throw "Expected coast-downshift guard was not applied."
+          }
+
+          Set-Content -Path $path -Value $text -NoNewline
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/shifter.cpp
+          git diff --cached --exit-code
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No source changes needed."
+            exit 0
+          }
+          git commit -m "Fix coast downshift behavior [skip ci]"
+          git push
 
       - name: Configure CMake
         run: cmake -S . -B build -A x64
