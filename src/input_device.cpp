@@ -30,8 +30,6 @@ namespace ecodrive
         inputs_[INPUT_NEUTRAL].value_type = SCS_VALUE_TYPE_bool;
 
         // ETS2 uses this exact semantic command name for cruise resume.
-        // The previous "cruiseresume" name did not match the user's
-        // semantical.cruiectrlres binding, so the resume pulse was ignored.
         inputs_[INPUT_CRUISE_RESUME].name = "cruiectrlres";
         inputs_[INPUT_CRUISE_RESUME].display_name = "EcoDrive Cruise Resume";
         inputs_[INPUT_CRUISE_RESUME].value_type = SCS_VALUE_TYPE_bool;
@@ -61,8 +59,7 @@ namespace ecodrive
         if (!register_device)
             return SCS_RESULT_invalid_parameter;
 
-        const scs_result_t result =
-            register_device(&device_);
+        const scs_result_t result = register_device(&device_);
 
         if (result == SCS_RESULT_ok)
             registered_ = true;
@@ -75,15 +72,16 @@ namespace ecodrive
         if (command == Command::none)
             return false;
 
-        /*
-         * Never overwrite an existing command.
-         *
-         * This is important because telemetry can be updated
-         * several times per frame and we do not want to flood
-         * ETS2 with gear commands.
-         */
-        int expected =
-            static_cast<int>(Command::none);
+        // Cruise resume has its own durable queue. It must not be lost just
+        // because a restore gear pulse or another command currently occupies
+        // the normal one-command slot.
+        if (command == Command::cruise_resume)
+        {
+            cruise_resume_pending_.store(true, std::memory_order_release);
+            return true;
+        }
+
+        int expected = static_cast<int>(Command::none);
 
         return pending_command_.compare_exchange_strong(
             expected,
@@ -129,18 +127,17 @@ namespace ecodrive
         if (!event_info)
             return SCS_RESULT_invalid_parameter;
 
+        // Every pressed command is followed by a release on the next callback.
+        // This keeps the semantic inputs as clean bool pulses.
         if (release_pending_)
         {
-            event_info->input_index =
-                static_cast<scs_u32_t>(release_input_index_);
-
+            event_info->input_index = static_cast<scs_u32_t>(release_input_index_);
             event_info->value_bool.value = 0;
-
             release_pending_ = false;
-
             return SCS_RESULT_ok;
         }
 
+        // Finish a cruise-resume hold before servicing another command.
         if (cruise_resume_hold_)
         {
             if (cruise_resume_hold_updates_ < CRUISE_RESUME_HOLD_UPDATES)
@@ -167,6 +164,8 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
+        // Recovery bursts deliberately have priority over the normal command
+        // slot. The controller can therefore request N -> target as one burst.
         unsigned burst_up = gear_up_burst_count_.load(std::memory_order_relaxed);
         if (burst_up > 0)
         {
@@ -189,14 +188,22 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        const int command_value =
-            pending_command_.exchange(
-                static_cast<int>(Command::none),
-                std::memory_order_acq_rel);
+        // Cruise resume is checked after bursts and releases, so a recovery
+        // sequence can never consume or overwrite the resume request.
+        if (cruise_resume_pending_.exchange(false, std::memory_order_acq_rel))
+        {
+            cruise_resume_hold_ = true;
+            cruise_resume_hold_updates_ = 1;
+            event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
+            event_info->value_bool.value = 1;
+            return SCS_RESULT_ok;
+        }
 
-        const Command command =
-            static_cast<Command>(command_value);
+        const int command_value = pending_command_.exchange(
+            static_cast<int>(Command::none),
+            std::memory_order_acq_rel);
 
+        const Command command = static_cast<Command>(command_value);
         unsigned input_index = INPUT_GEAR_UP;
 
         switch (command)
@@ -214,11 +221,11 @@ namespace ecodrive
             break;
 
         case Command::cruise_resume:
+            // Kept for compatibility if a stale command reaches this switch.
             cruise_resume_hold_ = true;
-            cruise_resume_hold_updates_ = 0;
+            cruise_resume_hold_updates_ = 1;
             event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
             event_info->value_bool.value = 1;
-            ++cruise_resume_hold_updates_;
             return SCS_RESULT_ok;
 
         case Command::none:
@@ -226,14 +233,10 @@ namespace ecodrive
             return SCS_RESULT_not_found;
         }
 
-        event_info->input_index =
-            static_cast<scs_u32_t>(input_index);
-
+        event_info->input_index = static_cast<scs_u32_t>(input_index);
         event_info->value_bool.value = 1;
-
         release_input_index_ = input_index;
         release_pending_ = true;
-
         return SCS_RESULT_ok;
     }
 
@@ -242,8 +245,7 @@ namespace ecodrive
         const scs_u32_t flags,
         const scs_context_t context)
     {
-        InputDevice* device =
-            static_cast<InputDevice*>(context);
+        InputDevice* device = static_cast<InputDevice*>(context);
 
         if (!device)
             device = g_device;
@@ -251,8 +253,6 @@ namespace ecodrive
         if (!device)
             return SCS_RESULT_not_found;
 
-        return device->handle_event(
-            event_info,
-            flags);
+        return device->handle_event(event_info, flags);
     }
 }
