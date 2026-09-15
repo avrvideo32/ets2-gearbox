@@ -137,24 +137,6 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        // Finish a cruise-resume hold before servicing another command.
-        if (cruise_resume_hold_)
-        {
-            if (cruise_resume_hold_updates_ < CRUISE_RESUME_HOLD_UPDATES)
-            {
-                event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
-                event_info->value_bool.value = 1;
-                ++cruise_resume_hold_updates_;
-                return SCS_RESULT_ok;
-            }
-
-            event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
-            event_info->value_bool.value = 0;
-            cruise_resume_hold_ = false;
-            cruise_resume_hold_updates_ = 0;
-            return SCS_RESULT_ok;
-        }
-
         const bool desired_clutch = clutch_hold_.load(std::memory_order_relaxed);
         if (desired_clutch != clutch_applied_)
         {
@@ -192,10 +174,14 @@ namespace ecodrive
         // sequence can never consume or overwrite the resume request.
         if (cruise_resume_pending_.exchange(false, std::memory_order_acq_rel))
         {
-            cruise_resume_hold_ = true;
-            cruise_resume_hold_updates_ = 1;
+            // Do not hold this semantic action. ETS2's cruise-resume control
+            // behaves like a button/toggle and needs a clean rising edge.
+            cruise_resume_pulse_pending_ = true;
             event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
             event_info->value_bool.value = 1;
+            release_input_index_ = INPUT_CRUISE_RESUME;
+            release_pending_ = true;
+            cruise_resume_pulse_pending_ = false;
             return SCS_RESULT_ok;
         }
 
@@ -222,10 +208,10 @@ namespace ecodrive
 
         case Command::cruise_resume:
             // Kept for compatibility if a stale command reaches this switch.
-            cruise_resume_hold_ = true;
-            cruise_resume_hold_updates_ = 1;
             event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
             event_info->value_bool.value = 1;
+            release_input_index_ = INPUT_CRUISE_RESUME;
+            release_pending_ = true;
             return SCS_RESULT_ok;
 
         case Command::none:
