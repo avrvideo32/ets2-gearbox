@@ -1,10 +1,16 @@
 #include "input_device.h"
 
+#include <cstdio>
+
 namespace ecodrive
 {
     namespace
     {
         InputDevice* g_device = nullptr;
+
+        constexpr unsigned CRUISE_RESUME_DELAY_UPDATES = 1;
+        constexpr unsigned CRUISE_RESUME_MAX_ATTEMPTS = 3;
+        constexpr unsigned CRUISE_RESUME_RETRY_COOLDOWN = 6;
     }
 
     InputDevice::InputDevice()
@@ -134,6 +140,12 @@ namespace ecodrive
             event_info->input_index = static_cast<scs_u32_t>(release_input_index_);
             event_info->value_bool.value = 0;
             release_pending_ = false;
+
+            if (release_input_index_ == INPUT_CRUISE_RESUME)
+            {
+                std::printf("EcoDrive: INPUT cruiectrlres -> RELEASE\n");
+            }
+
             return SCS_RESULT_ok;
         }
 
@@ -170,18 +182,44 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        // Cruise resume is checked after bursts and releases, so a recovery
-        // sequence can never consume or overwrite the resume request.
+        // Cruise resume is intentionally scheduled rather than emitted in the
+        // same callback that first observes the request. This gives ETS2 one
+        // clean input callback between the final gear-1 restore pulse and the
+        // cruise-resume action.
         if (cruise_resume_pending_.exchange(false, std::memory_order_acq_rel))
         {
-            // Do not hold this semantic action. ETS2's cruise-resume control
-            // behaves like a button/toggle and needs a clean rising edge.
-            cruise_resume_pulse_pending_ = true;
+            cruise_resume_delay_updates_ = CRUISE_RESUME_DELAY_UPDATES;
+            cruise_resume_attempts_left_ = CRUISE_RESUME_MAX_ATTEMPTS;
+            cruise_resume_cooldown_updates_ = 0;
+            std::printf("EcoDrive: cruise resume queued; delayed pulse scheduled.\n");
+        }
+
+        if (cruise_resume_attempts_left_ > 0)
+        {
+            if (cruise_resume_delay_updates_ > 0)
+            {
+                --cruise_resume_delay_updates_;
+                return SCS_RESULT_not_found;
+            }
+
+            if (cruise_resume_cooldown_updates_ > 0)
+            {
+                --cruise_resume_cooldown_updates_;
+                return SCS_RESULT_not_found;
+            }
+
+            --cruise_resume_attempts_left_;
             event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
             event_info->value_bool.value = 1;
             release_input_index_ = INPUT_CRUISE_RESUME;
             release_pending_ = true;
-            cruise_resume_pulse_pending_ = false;
+            cruise_resume_cooldown_updates_ = CRUISE_RESUME_RETRY_COOLDOWN;
+
+            std::printf(
+                "EcoDrive: INPUT cruiectrlres -> PRESS (attempt %u/%u)\n",
+                CRUISE_RESUME_MAX_ATTEMPTS - cruise_resume_attempts_left_,
+                CRUISE_RESUME_MAX_ATTEMPTS);
+
             return SCS_RESULT_ok;
         }
 
@@ -212,6 +250,7 @@ namespace ecodrive
             event_info->value_bool.value = 1;
             release_input_index_ = INPUT_CRUISE_RESUME;
             release_pending_ = true;
+            std::printf("EcoDrive: INPUT cruiectrlres -> PRESS (compat)\n");
             return SCS_RESULT_ok;
 
         case Command::none:
