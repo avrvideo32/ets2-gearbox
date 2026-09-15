@@ -9,20 +9,12 @@ namespace ecodrive
         InputDevice* g_device = nullptr;
 
         constexpr unsigned CRUISE_RESUME_DELAY_UPDATES = 1;
-        constexpr unsigned CRUISE_RESUME_MAX_ATTEMPTS = 3;
-        constexpr unsigned CRUISE_RESUME_RETRY_COOLDOWN = 6;
+        constexpr unsigned CRUISE_RESUME_MAX_ATTEMPTS = 12;
+        constexpr unsigned CRUISE_RESUME_RETRY_COOLDOWN = 2;
     }
 
     InputDevice::InputDevice()
     {
-        /*
-         * These names correspond to ETS2's semantic
-         * sequential gearbox mixes:
-         *
-         * semantical.gearup
-         * semantical.geardown
-         * semantical.gear0
-         */
         inputs_[INPUT_GEAR_UP].name = "gearup";
         inputs_[INPUT_GEAR_UP].display_name = "EcoDrive Gear Up";
         inputs_[INPUT_GEAR_UP].value_type = SCS_VALUE_TYPE_bool;
@@ -35,7 +27,6 @@ namespace ecodrive
         inputs_[INPUT_NEUTRAL].display_name = "EcoDrive Neutral";
         inputs_[INPUT_NEUTRAL].value_type = SCS_VALUE_TYPE_bool;
 
-        // ETS2 uses this exact semantic command name for cruise resume.
         inputs_[INPUT_CRUISE_RESUME].name = "cruiectrlres";
         inputs_[INPUT_CRUISE_RESUME].display_name = "EcoDrive Cruise Resume";
         inputs_[INPUT_CRUISE_RESUME].value_type = SCS_VALUE_TYPE_bool;
@@ -78,9 +69,22 @@ namespace ecodrive
         if (command == Command::none)
             return false;
 
-        // Cruise resume has its own durable queue. It must not be lost just
-        // because a restore gear pulse or another command currently occupies
-        // the normal one-command slot.
+        // During cruise re-engagement, do not allow the normal gearbox logic
+        // to issue another neutral or RPM-driven gear change. Gear 1 is only
+        // a staging gear; ETS2 must receive cruise resume before we continue
+        // climbing the gearbox. Recovery bursts remain available because they
+        // are handled separately in handle_event().
+        if (cruise_resume_pending_.load(std::memory_order_acquire) ||
+            cruise_resume_attempts_left_ > 0)
+        {
+            if (command == Command::gear_up ||
+                command == Command::gear_down ||
+                command == Command::neutral)
+            {
+                return false;
+            }
+        }
+
         if (command == Command::cruise_resume)
         {
             cruise_resume_pending_.store(true, std::memory_order_release);
@@ -133,8 +137,6 @@ namespace ecodrive
         if (!event_info)
             return SCS_RESULT_invalid_parameter;
 
-        // Every pressed command is followed by a release on the next callback.
-        // This keeps the semantic inputs as clean bool pulses.
         if (release_pending_)
         {
             event_info->input_index = static_cast<scs_u32_t>(release_input_index_);
@@ -142,9 +144,7 @@ namespace ecodrive
             release_pending_ = false;
 
             if (release_input_index_ == INPUT_CRUISE_RESUME)
-            {
                 std::printf("EcoDrive: INPUT cruiectrlres -> RELEASE\n");
-            }
 
             return SCS_RESULT_ok;
         }
@@ -159,7 +159,8 @@ namespace ecodrive
         }
 
         // Recovery bursts deliberately have priority over the normal command
-        // slot. The controller can therefore request N -> target as one burst.
+        // slot. Once cruise is confirmed by the game, the shifter can use a
+        // burst to leave staging gear 1 immediately.
         unsigned burst_up = gear_up_burst_count_.load(std::memory_order_relaxed);
         if (burst_up > 0)
         {
@@ -182,16 +183,12 @@ namespace ecodrive
             return SCS_RESULT_ok;
         }
 
-        // Cruise resume is intentionally scheduled rather than emitted in the
-        // same callback that first observes the request. This gives ETS2 one
-        // clean input callback between the final gear-1 restore pulse and the
-        // cruise-resume action.
         if (cruise_resume_pending_.exchange(false, std::memory_order_acq_rel))
         {
             cruise_resume_delay_updates_ = CRUISE_RESUME_DELAY_UPDATES;
             cruise_resume_attempts_left_ = CRUISE_RESUME_MAX_ATTEMPTS;
             cruise_resume_cooldown_updates_ = 0;
-            std::printf("EcoDrive: cruise resume queued; delayed pulse scheduled.\n");
+            std::printf("EcoDrive: cruise resume queued; protected recovery started.\n");
         }
 
         if (cruise_resume_attempts_left_ > 0)
@@ -245,7 +242,6 @@ namespace ecodrive
             break;
 
         case Command::cruise_resume:
-            // Kept for compatibility if a stale command reaches this switch.
             event_info->input_index = static_cast<scs_u32_t>(INPUT_CRUISE_RESUME);
             event_info->value_bool.value = 1;
             release_input_index_ = INPUT_CRUISE_RESUME;
