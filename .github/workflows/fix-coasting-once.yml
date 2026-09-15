@@ -1,0 +1,67 @@
+name: Fix coasting downshift once
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch shifter.cpp
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          p = Path('src/shifter.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('constexpr float DEFAULT_MAX_COAST_OVERREV_RPM = 2250.0f;\n\n', '', 1)
+          a = s.index('    bool coasting_downshift_eligible = false;')
+          b = s.index('    if (can_downshift)', a)
+          replacement = '''    // Neutral coasting must never request a downshift merely because the truck is coasting.
+    // Genuine low-RPM/lugging and active braking downshifts remain enabled.
+    const bool can_downshift =
+        (g > 1 && can_downshift_timing) &&
+        (r <= effective_downshift_rpm || is_lugging) &&
+        (speed_loss_or_idle || is_lugging || manual_brake_active) &&
+        !is_coasting;
+
+'''
+          s = s[:a] + replacement + s[b:]
+          s = s.replace('const unsigned required_stable = is_coasting ? 2 : 4;', 'const unsigned required_stable = 4;', 1)
+          s = s.replace('''                multi_downshift_target_gear_ =
+                    (block_target < g - 1) ? block_target : 0;''', '''                multi_downshift_target_gear_ = 0;''', 1)
+          start = s.find('                    if (multi_downshift_target_gear_ > 0)\n                    {', s.index('if (config.shift_logging && logger)', s.index('if (can_downshift)')))
+          if start >= 0:
+              end = s.find('                    }\n\n                    logger(b);', start)
+              if end >= 0:
+                  s = s[:start] + '''                    std::snprintf(
+                        b,
+                        sizeof(b),
+                        "EcoDrive: DOWN request %d -> %d | RPM %.0f | Speed %.2f%s",
+                        g,
+                        g - 1,
+                        r,
+                        s,
+                        cruise ? " | cruise" : "");
+
+''' + s[end+23:]
+          p.write_text(s, encoding='utf-8', newline='\n')
+      - name: Build
+        shell: powershell
+        run: |
+          cmake -S . -B build -A x64
+          cmake --build build --config Debug
+          cmake --build build --config Release
+      - name: Commit and remove this workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/shifter.cpp
+          git commit -m 'Fix coasting downshift behavior'
+          git push
