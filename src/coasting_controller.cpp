@@ -78,7 +78,7 @@ void CoastingController::start_coasting(int current_gear, float current_speed, f
     if (config.shift_logging && logger)
     {
         char b[220];
-        if (remembered_cruise_speed_ > 0.10f)
+        if (remembered_cruise_speed_() > 0.10f)
             std::snprintf(b, sizeof(b), "EcoDrive: coasting -> neutral from gear %d (remembered %d, cruise %.2f m/s)", current_gear, remembered_gear_, remembered_cruise_speed_);
         else
             std::snprintf(b, sizeof(b), "EcoDrive: coasting -> neutral from gear %d (remembered %d)", current_gear, remembered_gear_);
@@ -137,7 +137,7 @@ void CoastingController::start_restore_if_needed(InputDevice& input, int current
         return;
 
     const float abs_speed = std::fabs(speed);
-    const bool has_cruise_memory = remembered_cruise_speed_ > 0.10f;
+    const bool has_cruise_memory = remembered_cruise_speed_() > 0.10f;
     const bool cruise_restore_needed = has_cruise_memory && abs_speed <= remembered_cruise_speed - 0.05f;
 
     const bool standstill_takeoff_request =
@@ -188,7 +188,7 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
 {
     (void)speed_delta;
     const float abs_speed = std::fabs(speed);
-    const bool has_cruise_memory = remembered_cruise_speed_ > 0.10f;
+    const bool has_cruise_memory = remembered_cruise_speed_() > 0.10f;
     const bool speed_below_cruise = has_cruise_memory && abs_speed <= remembered_cruise_speed - 0.05f;
     const bool driver_throttle_request = driver_throttle >= config.restore_throttle || restore_throttle_updates_ >= RESTORE_THROTTLE_DEBOUNCE_UPDATES;
 
@@ -249,7 +249,7 @@ void CoastingController::update_restore_logic(InputDevice& input, int current_ge
             remembered_gear_ = current_gear;
             post_neutral_recovery_ = true;
 
-            if (remembered_cruise_speed_ > 0.10f)
+            if (remembered_cruise_speed_() > 0.10f)
             {
                 input.request_command(InputDevice::Command::cruise_resume);
                 remembered_cruise_speed_ = 0.0f;
@@ -328,7 +328,7 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
             restore_wait_updates_ = 0;
             post_neutral_recovery_ = true;
 
-            if (remembered_cruise_speed_ > 0.10f)
+            if (remembered_cruise_speed_() > 0.10f)
             {
                 input.request_command(InputDevice::Command::cruise_resume);
                 remembered_cruise_speed_ = 0.0f;
