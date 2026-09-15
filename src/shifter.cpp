@@ -77,7 +77,7 @@ void Shifter::on_cruise_changed(float old_cruise, float new_cruise, const Config
     if (was_active != now_active) { cruise_economy_cooldown_updates_ = 0; if (now_active && config.shift_logging && logger) logger("EcoDrive: cruise control active."); }
 }
 
-void Shifter::update_automatic_shifter(InputDevice& input, int g, float r, float s, float speed_delta, float t, float clutch, bool cruise, float cruise_target, bool throttle_active, int minimum_gear, bool minimum_gear_locked, int effective_max_gear, const Config& config, CoastingController& coasting, AdaptiveLearner& learner, TripTracker& tracker, const std::function<void(const char*)>& logger, const PowertrainContext& context)
+void Shifter::update_automatic_shifter(InputDevice& input, int g, float r, float s, float speed_delta, float t, float clutch, bool cruise, float cruise_target, bool throttle_active, int minimum_gear, bool minimum_gear_locked, int effective_max_gear, const Config& config, CoastingController& coasting, AdaptiveLearner& learner, const std::function<void(const char*)>& logger, const PowertrainContext& context)
 {
     const bool effective_power_request = t > THROTTLE_RELEASE_THRESHOLD;
     const bool manual_brake_active = is_brake_active();
@@ -103,11 +103,14 @@ void Shifter::update_automatic_shifter(InputDevice& input, int g, float r, float
             if (target > g)
             {
                 const unsigned burst = static_cast<unsigned>(target - g);
-                if (input.request_gear_up_burst(std::min<unsigned>(burst, 16u)))
-                {
-                    shift_in_progress_ = true; requested_gear_ = target; shift_purpose_ = ShiftPurpose::automatic; shift_wait_updates_ = 0; multi_upshift_target_gear_ = 0; multi_upshift_wait_updates_ = 0;
-                    if (config.shift_logging && logger) { char b[260]; std::snprintf(b, sizeof(b), "EcoDrive: CRUISE RECOVERY speed-match %d -> %d | speed %.2f | current RPM %.0f | landing RPM %.0f", g, target, s, r, landing_target); logger(b); }
-                }
+                input.request_gear_up_burst(std::min<unsigned>(burst, 16u));
+                shift_in_progress_ = true;
+                requested_gear_ = target;
+                shift_purpose_ = ShiftPurpose::automatic;
+                shift_wait_updates_ = 0;
+                multi_upshift_target_gear_ = 0;
+                multi_upshift_wait_updates_ = 0;
+                if (config.shift_logging && logger) { char b[260]; std::snprintf(b, sizeof(b), "EcoDrive: CRUISE RECOVERY speed-match %d -> %d | speed %.2f | current RPM %.0f | landing RPM %.0f", g, target, s, r, landing_target); logger(b); }
                 return;
             }
         }
@@ -176,6 +179,6 @@ void Shifter::reset()
     multi_upshift_target_gear_ = 0; multi_upshift_wait_updates_ = 0; multi_downshift_target_gear_ = 0; multi_downshift_wait_updates_ = 0;
     load_downshift_cooldown_updates_ = 0; load_downshift_upshift_block_updates_ = 0; load_downshift_start_speed_ = 0.0f; gear_upshift_block_updates_.fill(0);
     brake_active_updates_ = 0; brake_downshift_triggered_ = false; last_brake_value_ = 0.0f; load_downshift_stable_updates_ = 0; hillclimb_downshift_stable_updates_ = 0; normal_downshift_stable_updates_ = 0; hillclimb_reference_speed_ = 0.0f;
-    cruise_economy_cooldown_updates_ = 0; cruise_blocked_upshift_gear_ = 0; cruise_blocked_target_speed_ = 0.0f; cruise_block_updates_ = 0; cruise_shift_start_speed_ = 0.0f; cruise_shift_from_gear_ = 0; cruise_shift_throttle_ = 0.0f; cruise_shift_speed_delta_ = 0.0f; post_shift_drive_grace_updates_ = 0;
+    cruise_economy_cooldown_updates_ = 0; cruise_blocked_upshift_gear_ = 0; cruise_blocked_target_speed_ = 0.0f; cruise_block_updates_ = 0; cruise_shift_start_speed_ = 0; cruise_shift_from_gear_ = 0; cruise_shift_throttle_ = 0.0f; cruise_shift_speed_delta_ = 0.0f; post_shift_drive_grace_updates_ = 0;
 }
 }
