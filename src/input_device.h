@@ -57,6 +57,11 @@ namespace ecodrive
             static_cast<int>(Command::none)
         };
 
+        // Cruise resume is intentionally independent from the single normal
+        // command slot. A resume request must survive a busy gear command or
+        // a recovery burst instead of being silently discarded.
+        std::atomic<bool> cruise_resume_pending_{false};
+
         std::atomic<unsigned> gear_up_burst_count_{0};
         std::atomic<unsigned> gear_down_burst_count_{0};
 
