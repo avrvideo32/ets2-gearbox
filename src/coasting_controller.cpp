@@ -140,10 +140,6 @@ void CoastingController::start_restore_if_needed(InputDevice& input, int current
     const bool has_cruise_memory = remembered_cruise_speed_ > 0.10f;
     const bool cruise_restore_needed = has_cruise_memory && abs_speed <= remembered_cruise_speed_ - 0.05f;
 
-    // At standstill the truck must be able to leave neutral as soon as there is
-    // actual pedal/cruise demand. Do not wait for the three/four-update drive
-    // debounce used while moving; that debounce can otherwise leave the truck
-    // stuck in neutral from rest.
     const bool standstill_takeoff_request =
         abs_speed <= STANDSTILL_SPEED_THRESHOLD &&
         (driver_throttle > THROTTLE_RELEASE_THRESHOLD || cruise_active);
@@ -262,13 +258,11 @@ void CoastingController::update_restore_logic(InputDevice& input, int current_ge
         }
     }
 
-    if (!driver_wants_drive && remembered_cruise_speed_ <= 0.10f)
-    {
-        restore_in_progress_ = false;
-        restore_target_gear_ = 0;
-        restore_wait_updates_ = 0;
-        return;
-    }
+    // IMPORTANT: restoration is a committed action once started. Do not cancel
+    // it just because throttle demand disappears on the next telemetry update.
+    // Previously this made forced safety restoration log its target but then
+    // silently abandon the first RESTORE request.
+    (void)driver_wants_drive;
 
     if (restore_target_gear_ < 1 || restore_target_gear_ > effective_max_gear)
     {
@@ -381,6 +375,7 @@ void CoastingController::reset()
     restore_wait_updates_ = 0;
     restore_throttle_updates_ = 0;
     effective_throttle_zero_updates_ = 0;
+    low_speed_updates_ = 0;
 }
 
 }
