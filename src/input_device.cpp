@@ -29,7 +29,10 @@ namespace ecodrive
         inputs_[INPUT_NEUTRAL].display_name = "EcoDrive Neutral";
         inputs_[INPUT_NEUTRAL].value_type = SCS_VALUE_TYPE_bool;
 
-        inputs_[INPUT_CRUISE_RESUME].name = "cruiseresume";
+        // ETS2 uses this exact semantic command name for cruise resume.
+        // The previous "cruiseresume" name did not match the user's
+        // semantical.cruiectrlres binding, so the resume pulse was ignored.
+        inputs_[INPUT_CRUISE_RESUME].name = "cruiectrlres";
         inputs_[INPUT_CRUISE_RESUME].display_name = "EcoDrive Cruise Resume";
         inputs_[INPUT_CRUISE_RESUME].value_type = SCS_VALUE_TYPE_bool;
 
