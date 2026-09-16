@@ -61,7 +61,6 @@ bool CoastingController::should_start_coasting(bool manual_driver_wants_drive, u
     if (abs_speed < COASTING_MIN_SPEED)
         return false;
 
-    // Two gears down must always leave a usable forward gear.
     if (current_gear < COASTING_GEAR_DROP + 1)
         return false;
 
@@ -199,9 +198,12 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
     (void)minimum_gear;
     (void)context;
 
-    // This is now a gear-coasting state, not a neutral state. Keep the truck
-    // exactly two gears below the gear in which coasting started. No automatic
-    // upshift is allowed while the driver is still coasting.
+    // This is a gear-coasting state, not a neutral state. The requested coast
+    // is exactly two gears below the gear in which coasting started. We issue
+    // the two downshifts as separate confirmed steps instead of one burst.
+    // That is important because the telemetry layer observes the intermediate
+    // gear; treating that intermediate gear as a manual override used to cancel
+    // the second pulse and could fall through to the old neutral recovery path.
     if (neutral_in_progress_ && current_gear >= 1)
     {
         const bool driver_accelerates = driver_throttle >= config.restore_throttle || restore_throttle_updates_ >= RESTORE_THROTTLE_DEBOUNCE_UPDATES;
@@ -216,6 +218,27 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
 
             if (config.shift_logging && logger)
                 logger(driver_accelerates || cruise_needs_acceleration ? "EcoDrive: COAST exit -> normal automatic shifting." : "EcoDrive: COAST exit at low speed -> normal automatic shifting.");
+            return;
+        }
+
+        const int target_gear = std::max(1, remembered_gear_ - COASTING_GEAR_DROP);
+        if (!shift_in_progress && current_gear > target_gear)
+        {
+            const int next_gear = current_gear - 1;
+            if (input.request_command(InputDevice::Command::gear_down))
+            {
+                shift_in_progress = true;
+                requested_gear = next_gear;
+                shift_purpose = ShiftPurpose::neutralize;
+                shift_wait_updates = 0;
+
+                if (config.shift_logging && logger)
+                {
+                    char b[180];
+                    std::snprintf(b, sizeof(b), "EcoDrive: COAST step %d -> %d | final target %d", current_gear, next_gear, target_gear);
+                    logger(b);
+                }
+            }
         }
         return;
     }
@@ -235,19 +258,18 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
         return;
 
     const int target_gear = current_gear - COASTING_GEAR_DROP;
-    const unsigned burst = COASTING_GEAR_DROP;
 
-    if (input.request_gear_down_burst(burst), true)
+    if (input.request_command(InputDevice::Command::gear_down))
     {
         shift_in_progress = true;
-        requested_gear = target_gear;
+        requested_gear = current_gear - 1;
         shift_purpose = ShiftPurpose::neutralize;
         shift_wait_updates = 0;
 
         if (config.shift_logging && logger)
         {
             char b[180];
-            std::snprintf(b, sizeof(b), "EcoDrive: COAST request %d -> %d (2 gear-down pulses)", current_gear, target_gear);
+            std::snprintf(b, sizeof(b), "EcoDrive: COAST step %d -> %d | final target %d", current_gear, requested_gear, target_gear);
             logger(b);
         }
     }
@@ -328,11 +350,9 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
 
         if (confirmed_gear >= 1 && confirmed_gear <= effective_max_gear)
         {
-            // The shift was the deliberate two-gear coasting drop. Keep the
-            // coasting gate active so normal automatic logic cannot immediately
-            // undo the high-RPM coast with an upshift.
             neutral_in_progress_ = true;
-            remembered_gear_ = std::max(remembered_gear_, confirmed_gear);
+            // Keep the original coast-start gear. The controller uses it to
+            // calculate the exact final two-gears-down target.
             post_neutral_recovery_ = false;
             input.cancel_burst();
             input.set_clutch_hold(false);
@@ -340,14 +360,12 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
             if (config.shift_logging && logger)
             {
                 char b[180];
-                std::snprintf(b, sizeof(b), "EcoDrive: COAST confirmed at gear %d (started in gear %d)", confirmed_gear, remembered_gear_);
+                std::snprintf(b, sizeof(b), "EcoDrive: COAST confirmed at gear %d (start gear %d, final target %d)", confirmed_gear, remembered_gear_, std::max(1, remembered_gear_ - COASTING_GEAR_DROP));
                 logger(b);
             }
         }
         else if (confirmed_gear == 0)
         {
-            // Safety fallback for an externally requested neutral. The new
-            // coasting path itself never requests neutral.
             neutral_in_progress_ = true;
             if (config.shift_logging && logger) logger("EcoDrive: external neutral confirmed while coasting.");
         }
