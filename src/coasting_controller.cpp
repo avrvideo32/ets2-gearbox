@@ -60,6 +60,12 @@ bool CoastingController::should_start_coasting(bool manual_driver_wants_drive, u
     if (!config.neutral_coasting_enabled)
         return false;
 
+    // A coast session is already active. Do not start a new session after
+    // reaching its final two-gears-down target; doing so would create a
+    // 12 -> 10 -> 8 -> 6 cascade while the driver remains off throttle.
+    if (neutral_in_progress_)
+        return false;
+
     const float abs_speed = std::fabs(current_speed);
     if (abs_speed < COASTING_MIN_SPEED)
         return false;
