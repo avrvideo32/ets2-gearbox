@@ -8,6 +8,7 @@ namespace ecodrive
 namespace
 {
 constexpr float THROTTLE_RELEASE_THRESHOLD = 0.02f;
+constexpr float COAST_EXIT_THROTTLE = 0.35f;
 constexpr float STANDSTILL_SPEED_THRESHOLD = 0.50f;
 constexpr float COASTING_MIN_SPEED = 4.5f;
 constexpr float COASTING_RESTORE_SPEED = 2.5f;
@@ -36,15 +37,17 @@ void CoastingController::on_throttle_sample(float sim_throttle, float driver_thr
     if (sim_throttle > THROTTLE_RELEASE_THRESHOLD)
         effective_throttle_zero_updates_ = 0;
 
-    if (driver_throttle >= config.restore_throttle && !shift_in_progress)
+    if (driver_throttle >= COAST_EXIT_THROTTLE && !shift_in_progress)
         ++restore_throttle_updates_;
-    else if (driver_throttle < config.restore_throttle)
+    else if (driver_throttle < COAST_EXIT_THROTTLE)
         restore_throttle_updates_ = 0;
 
     if (sim_throttle <= THROTTLE_RELEASE_THRESHOLD && driver_throttle <= THROTTLE_RELEASE_THRESHOLD && !shift_in_progress && current_gear >= 1)
         ++effective_throttle_zero_updates_;
     else
         effective_throttle_zero_updates_ = 0;
+
+    (void)config;
 }
 
 void CoastingController::on_speed_sample(float speed)
@@ -82,8 +85,6 @@ void CoastingController::start_coasting(int current_gear, float current_speed, f
         return;
     }
 
-    // The existing neutral_in_progress_ flag is retained as the controller's
-    // active-coasting gate. It no longer means that the transmission is in N.
     neutral_in_progress_ = true;
     restore_in_progress_ = false;
     remembered_gear_ = current_gear;
@@ -92,6 +93,7 @@ void CoastingController::start_coasting(int current_gear, float current_speed, f
     restore_target_gear_ = 0;
     restore_wait_updates_ = 0;
     post_neutral_recovery_ = false;
+    restore_throttle_updates_ = 0;
 
     if (config.shift_logging && logger)
     {
@@ -198,15 +200,9 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
     (void)minimum_gear;
     (void)context;
 
-    // This is a gear-coasting state, not a neutral state. The requested coast
-    // is exactly two gears below the gear in which coasting started. We issue
-    // the two downshifts as separate confirmed steps instead of one burst.
-    // That is important because the telemetry layer observes the intermediate
-    // gear; treating that intermediate gear as a manual override used to cancel
-    // the second pulse and could fall through to the old neutral recovery path.
     if (neutral_in_progress_ && current_gear >= 1)
     {
-        const bool driver_accelerates = driver_throttle >= config.restore_throttle || restore_throttle_updates_ >= RESTORE_THROTTLE_DEBOUNCE_UPDATES;
+        const bool driver_accelerates = driver_throttle >= COAST_EXIT_THROTTLE || restore_throttle_updates_ >= RESTORE_THROTTLE_DEBOUNCE_UPDATES;
         const bool cruise_needs_acceleration = cruise_active && remembered_cruise_speed() > 0.10f && speed < remembered_cruise_speed() - 0.05f;
 
         if (driver_accelerates || cruise_needs_acceleration || std::fabs(speed) <= COASTING_RESTORE_SPEED)
@@ -351,8 +347,6 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
         if (confirmed_gear >= 1 && confirmed_gear <= effective_max_gear)
         {
             neutral_in_progress_ = true;
-            // Keep the original coast-start gear. The controller uses it to
-            // calculate the exact final two-gears-down target.
             post_neutral_recovery_ = false;
             input.cancel_burst();
             input.set_clutch_hold(false);
@@ -395,40 +389,17 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
     }
 }
 
-void CoastingController::on_manual_override(InputDevice& input, int confirmed_gear, int effective_max_gear, const Config& config, const std::function<void(const char*)>& logger)
-{
-    restore_in_progress_ = false;
-    restore_target_gear_ = 0;
-    restore_wait_updates_ = 0;
-    neutral_in_progress_ = false;
-    post_neutral_recovery_ = false;
-    remembered_cruise_speed_ = 0.0f;
-    input.cancel_burst();
-    input.set_clutch_hold(false);
-
-    if (confirmed_gear >= 1 && confirmed_gear <= effective_max_gear)
-    {
-        remembered_gear_ = confirmed_gear;
-        if (config.shift_logging && logger)
-        {
-            char b[180];
-            std::snprintf(b, sizeof(b), "EcoDrive: manual override remembered gear %d", remembered_gear_);
-            logger(b);
-        }
-    }
-}
-
 void CoastingController::reset()
 {
+    effective_throttle_zero_updates_ = 0;
+    restore_throttle_updates_ = 0;
+    restore_wait_updates_ = 0;
+    restore_target_gear_ = 0;
     remembered_gear_ = 0;
     coasting_start_speed_ = 0.0f;
     remembered_cruise_speed_ = 0.0f;
     neutral_in_progress_ = false;
     restore_in_progress_ = false;
-    restore_target_gear_ = 0;
-    restore_wait_updates_ = 0;
-    restore_throttle_updates_ = 0;
-    effective_throttle_zero_updates_ = 0;
     post_neutral_recovery_ = false;
     low_speed_updates_ = 0;
 }
