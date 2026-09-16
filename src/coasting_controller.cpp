@@ -389,6 +389,29 @@ void CoastingController::on_shift_confirmed(InputDevice& input, ShiftPurpose pur
     }
 }
 
+void CoastingController::on_manual_override(InputDevice& input, int confirmed_gear, int effective_max_gear, const Config& config, const std::function<void(const char*)>& logger)
+{
+    restore_in_progress_ = false;
+    restore_target_gear_ = 0;
+    restore_wait_updates_ = 0;
+    neutral_in_progress_ = false;
+    post_neutral_recovery_ = false;
+    remembered_cruise_speed_ = 0.0f;
+    input.cancel_burst();
+    input.set_clutch_hold(false);
+
+    if (confirmed_gear >= 1 && confirmed_gear <= effective_max_gear)
+    {
+        remembered_gear_ = confirmed_gear;
+        if (config.shift_logging && logger)
+        {
+            char b[180];
+            std::snprintf(b, sizeof(b), "EcoDrive: manual override remembered gear %d", remembered_gear_);
+            logger(b);
+        }
+    }
+}
+
 void CoastingController::reset()
 {
     effective_throttle_zero_updates_ = 0;
