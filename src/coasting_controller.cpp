@@ -213,13 +213,40 @@ void CoastingController::update_neutral_logic(InputDevice& input, int current_ge
 
         if (driver_accelerates || cruise_needs_acceleration || std::fabs(speed) <= COASTING_RESTORE_SPEED)
         {
+            const bool active_restore = driver_accelerates || cruise_needs_acceleration;
+            const int safe_max = std::max(1, effective_max_gear);
+            const int remembered_target = std::clamp(remembered_gear_, 1, safe_max);
+
             neutral_in_progress_ = false;
-            post_neutral_recovery_ = true;
             restore_throttle_updates_ = 0;
             effective_throttle_zero_updates_ = 0;
 
-            if (config.shift_logging && logger)
-                logger(driver_accelerates || cruise_needs_acceleration ? "EcoDrive: COAST exit -> normal automatic shifting." : "EcoDrive: COAST exit at low speed -> normal automatic shifting.");
+            if (active_restore && remembered_target > current_gear)
+            {
+                // Normal coasting is exactly two gears down, so exiting coast
+                // should return to the gear that was active when coasting began.
+                // Keep this separate from legacy neutral restoration: the truck
+                // is still in a forward gear here, so the generic neutral-only
+                // restore path cannot handle this transition.
+                restore_target_gear_ = remembered_target;
+                restore_in_progress_ = true;
+                restore_wait_updates_ = 0;
+                post_neutral_recovery_ = false;
+
+                if (config.shift_logging && logger)
+                {
+                    char b[220];
+                    std::snprintf(b, sizeof(b), "EcoDrive: COAST exit -> restoring remembered gear %d -> %d", current_gear, remembered_target);
+                    logger(b);
+                }
+            }
+            else
+            {
+                post_neutral_recovery_ = true;
+
+                if (config.shift_logging && logger)
+                    logger(driver_accelerates || cruise_needs_acceleration ? "EcoDrive: COAST exit -> normal automatic shifting." : "EcoDrive: COAST exit at low speed -> normal automatic shifting.");
+            }
             return;
         }
 
