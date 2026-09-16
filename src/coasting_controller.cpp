@@ -14,7 +14,7 @@ constexpr float COASTING_MIN_SPEED = 4.5f;
 constexpr float COASTING_RESTORE_SPEED = 2.5f;
 constexpr unsigned RESTORE_THROTTLE_DEBOUNCE_UPDATES = 4;
 constexpr unsigned MAX_RECOVERY_BURST = 16;
-constexpr int COASTING_GEAR_DROP = 2;
+constexpr int COASTING_GEAR_DROP = 3;
 
 int rolling_recovery_min_gear(float speed, int takeoff_gear, int effective_max_gear)
 {
@@ -61,8 +61,8 @@ bool CoastingController::should_start_coasting(bool manual_driver_wants_drive, u
         return false;
 
     // A coast session is already active. Do not start a new session after
-    // reaching its final two-gears-down target; doing so would create a
-    // 12 -> 10 -> 8 -> 6 cascade while the driver remains off throttle.
+    // reaching its final three-gears-down target; doing so would create a
+    // 12 -> 9 -> 6 -> 3 cascade while the driver remains off throttle.
     if (neutral_in_progress_)
         return false;
 
@@ -106,9 +106,9 @@ void CoastingController::start_coasting(int current_gear, float current_speed, f
         char b[240];
         const int target = current_gear - COASTING_GEAR_DROP;
         if (remembered_cruise_speed() > 0.10f)
-            std::snprintf(b, sizeof(b), "EcoDrive: COAST %d -> %d (2 gears down, cruise %.2f m/s)", current_gear, target, remembered_cruise_speed_);
+            std::snprintf(b, sizeof(b), "EcoDrive: COAST %d -> %d (3 gears down, cruise %.2f m/s)", current_gear, target, remembered_cruise_speed_);
         else
-            std::snprintf(b, sizeof(b), "EcoDrive: COAST %d -> %d (2 gears down)", current_gear, target);
+            std::snprintf(b, sizeof(b), "EcoDrive: COAST %d -> %d (3 gears down)", current_gear, target);
         logger(b);
     }
 }
