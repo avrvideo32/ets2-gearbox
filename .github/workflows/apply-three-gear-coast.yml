@@ -1,7 +1,9 @@
 name: Apply three-gear coast change
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - coasting-restore-fix
 
 permissions:
   contents: write
